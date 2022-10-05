@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path'
 
 // Dictionary of line initializers
 const initializerDict = {
@@ -11,11 +12,11 @@ const initializerDict = {
 };
 
 function processInlines(line) {
-    const keyDict = {'[': ']', '(': ')'}
-    let sections = []; // [{type: '(', start: 0, end: 10]}]
+    const keyDict = {'[': ']', '(': ')'} // Inline keys: {startKey: endKey, ...}
+    let sections = []; // Keeps track of bracketed sections: [{type: '(', start: 0, end: 10]}] 
 
     const keys = Object.keys(keyDict);
-    function findMatchingBracket(startKey, i) {
+    function findMatchingBracket(startKey, i) { // Recursively finds bracket matches and adds them to the "sections" array
         const endKey = keyDict[startKey];
         for(let j = i + 1; j < line.length; j++) {
             if(line[j] == endKey) {
@@ -35,20 +36,30 @@ function processInlines(line) {
             i = findMatchingBracket(line[i], i)
         }
     }
-    console.log(sections)
 
-    // Check for corresponding anchor/href pair
-    let processedLine = line.concat()
+    // Check for corresponding anchor/href pairs
+    let anchors = [] //{text, href, start, end}
     for (let i = 0; i < sections.length - 1; i++) {
         if (sections[i].type == '[' && sections[i + 1].type == '(') {
             if (sections[i].end == sections[i + 1].start - 1) {
                 const href = line.slice(sections[i + 1].start + 1, sections[i + 1].end);
-                processedLine = `${processedLine.slice(0, sections[i].start)}<a href='${href}'>${processedLine.slice(sections[i].start + 1, sections[i].end)}</a>${processedLine.slice(sections[i + 1].end + 1)}`
+                const text = line.slice(sections[i].start + 1, sections[i].end);
+                anchors.push({text: text, href: href, start: sections[i].start, end: sections[i + 1].end + 1});
             }
         }
     }
 
-    return processedLine;
+    // Create and return new line
+    if(anchors.length) {
+        let processedLine = '';
+        processedLine += line.slice(0, anchors[0].start);
+        for(let i = 0; i < anchors.length; i++) {
+            processedLine += `<a href='${anchors[i].href}'>${anchors[i].text}</a>`;
+            processedLine += line.slice(anchors[i].end, anchors[i + 1]?.start || line.length);;
+        }
+        return processedLine
+    }
+    return line;
 }
 
 function toHtml(inputName, outputName) {
@@ -64,25 +75,27 @@ function toHtml(inputName, outputName) {
 
         // Handle formatted text
         if (initializerDict[parsed[0]]) {
-            mainDivs.push({tag: initializerDict[parsed[0]], data: line});
+            mainDivs.push({tag: initializerDict[parsed[0]], data: parsed.slice(1, parsed.length).join(' ')});
             continue;
         }
 
         // Handle unformatted text
-        if (mainDivs[mainDivs.length - 1].tag == 'p') {
+        if (mainDivs[mainDivs.length - 1]?.tag == 'p') {
             mainDivs[mainDivs.length - 1].data += `<br />${line}`
         }
         else {
-            mainDivs.push({tag: 'p', data: parsed.join(' ')})
+            mainDivs.push({tag: 'p', data: line})
         }
     }
-    console.log(mainDivs)
     const outString = mainDivs.map((div) => `<${div.tag}>${div.data}</${div.tag}>`).join('\n')
     fs.writeFileSync(outputName, outString)
 }
 
 function main() {
-    toHtml('./tests/test.md', 'output.html');
+    const tests = fs.readdirSync('tests')
+    tests.forEach((testFileName) => {
+        toHtml('tests/' + testFileName,'outputs/' + path.parse(testFileName).name + '.html');
+    })
 }
 
 main();
